@@ -1,0 +1,46 @@
+import { Response } from "express";
+import ClassModel from "../models/Class";
+import { AuthRequest } from "../middleware/auth";
+
+export const createClass = async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, arm, branch } = req.body; // arm is optional
+    const newClass = await ClassModel.create({ name, arm, branch });
+    res.status(201).json(newClass);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
+  }
+};
+
+// supports filtering by branch: GET /api/classes?branch=<id>
+export const getClasses = async (req: AuthRequest, res: Response) => {
+  try {
+    const filter: Record<string, string> = {};
+    if (req.query.branch) filter.branch = req.query.branch as string;
+
+    const classes = await ClassModel.find(filter).populate("branch", "name").sort({ name: 1 });
+    res.status(200).json(classes);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
+  }
+};
+
+export const updateClass = async (req: AuthRequest, res: Response) => {
+  try {
+    const updated = await ClassModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!updated) return res.status(404).json({ message: "Class not found" });
+    res.status(200).json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
+  }
+};
+
+export const deleteClass = async (req: AuthRequest, res: Response) => {
+  try {
+    const deleted = await ClassModel.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: "Class not found" });
+    res.status(200).json({ message: "Class deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
+  }
+};
