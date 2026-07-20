@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User, { UserRole } from "../models/User";
+import { AuthRequest } from "../middleware/auth";
 
 const generateToken = (id: string, role: string, branch?: string) => {
   return jwt.sign({ id, role, branch }, process.env.JWT_SECRET as string, {
@@ -73,6 +74,19 @@ export const login = async (req: Request, res: Response) => {
       token,
       user: { id: user._id, name: user.name, email: user.email, role: user.role },
     });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
+  }
+};
+
+export const getMe = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await User.findById(req.user!.id)
+      .select("-password")
+      .populate("subjects")
+      .populate("classes")
+      .populate("branch");
+    res.status(200).json(user);
   } catch (err) {
     res.status(500).json({ message: "Server error", error: (err as Error).message });
   }
