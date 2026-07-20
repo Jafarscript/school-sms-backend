@@ -14,6 +14,7 @@ import reportCardRoutes from "./routes/reportCardRoutes";
 import pdfRoutes from "./routes/pdfRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
 import parentPortalRoutes from "./routes/parentPortalRoutes";
+import termRoutes from "./routes/termRoutes"
 import { errorHandler } from "./middleware/errorHandler";
 
 dotenv.config();
@@ -39,6 +40,7 @@ app.use("/api/report-card", reportCardRoutes);
 app.use("/api/report-card/pdf", pdfRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/parent-portal", parentPortalRoutes);
+app.use("/api/terms", termRoutes)
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 8080;
