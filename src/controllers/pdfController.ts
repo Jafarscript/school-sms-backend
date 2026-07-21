@@ -12,23 +12,38 @@ export const downloadSingleReportCardPdf = async (req: AuthRequest, res: Respons
   try {
     const { student: studentId, term, gradingScale } = req.query;
 
-    // reuse the exact same logic from Day 6 by calling our own endpoint's
-    // underlying function directly instead of duplicating it — see note below
-    const reportData = await buildReportCardData(studentId as string, term as string, gradingScale as string);
+    const reportData = await buildReportCardData(
+      studentId as string,
+      term as string,
+      gradingScale as string
+    );
 
     if (!reportData) return res.status(404).json({ message: "Report card data not found" });
 
     const doc = new PDFDocument({ margin: 50 });
     res.setHeader("Content-Type", "application/pdf");
+
+    // Content-Disposition headers must be ASCII-safe. A student's name
+    // may contain Arabic script or other non-ASCII characters, which
+    // would crash res.setHeader outright. RFC 5987's filename* syntax
+    // lets us send a UTF-8 filename safely via percent-encoding, with a
+    // plain ASCII fallback for older clients that don't support it.
+    const safeAsciiFallback = "report_card.pdf";
+    const encodedName = encodeURIComponent(
+      `${reportData.student.name}_report_card.pdf`
+    );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=${reportData.student.name.replace(/\s+/g, "_")}_report_card.pdf`
+      `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedName}`
     );
+
     doc.pipe(res);
     drawReportCard(doc, reportData);
     doc.end();
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: "Server error", error: (err as Error).message });
   }
 };
 

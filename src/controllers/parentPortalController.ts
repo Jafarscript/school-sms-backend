@@ -25,43 +25,68 @@ export const getMyChildReportCard = async (req: AuthRequest, res: Response) => {
 
     const studentId = await getLinkedStudentId(req.user!.id);
     if (!studentId) {
-      return res.status(403).json({ message: "No student linked to this account" });
+      return res
+        .status(403)
+        .json({ message: "No student linked to this account" });
     }
 
-    const data = await buildReportCardData(studentId, term as string, gradingScale as string);
-    if (!data) return res.status(404).json({ message: "Report card not found" });
+    const data = await buildReportCardData(
+      studentId,
+      term as string,
+      gradingScale as string,
+    );
+    if (!data)
+      return res.status(404).json({ message: "Report card not found" });
 
     res.status(200).json(data);
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: "Server error", error: (err as Error).message });
   }
 };
 
 // GET /api/parent-portal/report-card/pdf?term=<termId>&gradingScale=<scaleId>
-export const downloadMyChildReportCardPdf = async (req: AuthRequest, res: Response) => {
+export const downloadMyChildReportCardPdf = async (
+  req: AuthRequest,
+  res: Response,
+) => {
   try {
     const { term, gradingScale } = req.query;
     if (!term) return res.status(400).json({ message: "term is required" });
 
     const studentId = await getLinkedStudentId(req.user!.id);
     if (!studentId) {
-      return res.status(403).json({ message: "No student linked to this account" });
+      return res
+        .status(403)
+        .json({ message: "No student linked to this account" });
     }
 
-    const data = await buildReportCardData(studentId, term as string, gradingScale as string);
-    if (!data) return res.status(404).json({ message: "Report card not found" });
+    const data = await buildReportCardData(
+      studentId,
+      term as string,
+      gradingScale as string,
+    );
+    if (!data)
+      return res.status(404).json({ message: "Report card not found" });
 
     const doc = new PDFDocument({ margin: 50 });
     res.setHeader("Content-Type", "application/pdf");
+    const safeAsciiFallback = "report_card.pdf";
+    const encodedName = encodeURIComponent(
+      `${data.student.name}_report_card.pdf`,
+    );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=${data.student.name.replace(/\s+/g, "_")}_report_card.pdf`
+      `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedName}`,
     );
     doc.pipe(res);
     drawReportCard(doc, data);
     doc.end();
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: "Server error", error: (err as Error).message });
   }
 };
 
@@ -73,6 +98,8 @@ export const getAvailableTerms = async (_req: AuthRequest, res: Response) => {
     const terms = await Term.find().sort({ session: -1, termNumber: -1 });
     res.status(200).json(terms);
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: "Server error", error: (err as Error).message });
   }
 };
