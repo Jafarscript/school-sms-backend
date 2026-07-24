@@ -1,15 +1,10 @@
 import { Response } from "express";
 import User from "../models/User";
 import Term from "../models/Term";
-import PDFDocument from "pdfkit";
 import { AuthRequest } from "../middleware/auth";
 import { buildReportCardData } from "./reportCardController";
-import { drawReportCard } from "../utils/generateReportCardPdf";
+import { generateSingleReportCardPdf } from "../utils/generateReportCardPdf";
 
-// Shared guard: confirms the logged-in parent actually has a linkedStudent,
-// and returns that student's ID — ignoring whatever the request tries to pass.
-// This is the whole point of this file: a parent's own account already
-// determines which student they can see, it's never taken from the request.
 const getLinkedStudentId = async (userId: string): Promise<string | null> => {
   const user = await User.findById(userId);
   if (!user || !user.linkedStudent) return null;
@@ -17,7 +12,6 @@ const getLinkedStudentId = async (userId: string): Promise<string | null> => {
 };
 
 // GET /api/parent-portal/report-card?term=<termId>&gradingScale=<scaleId>
-// Note: no `student` param accepted here at all — deliberately.
 export const getMyChildReportCard = async (req: AuthRequest, res: Response) => {
   try {
     const { term, gradingScale } = req.query;
@@ -25,81 +19,54 @@ export const getMyChildReportCard = async (req: AuthRequest, res: Response) => {
 
     const studentId = await getLinkedStudentId(req.user!.id);
     if (!studentId) {
-      return res
-        .status(403)
-        .json({ message: "No student linked to this account" });
+      return res.status(403).json({ message: "No student linked to this account" });
     }
 
-    const data = await buildReportCardData(
-      studentId,
-      term as string,
-      gradingScale as string,
-    );
-    if (!data)
-      return res.status(404).json({ message: "Report card not found" });
+    const data = await buildReportCardData(studentId, term as string, gradingScale as string);
+    if (!data) return res.status(404).json({ message: "Report card not found" });
 
     res.status(200).json(data);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Server error", error: (err as Error).message });
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
   }
 };
 
 // GET /api/parent-portal/report-card/pdf?term=<termId>&gradingScale=<scaleId>
-export const downloadMyChildReportCardPdf = async (
-  req: AuthRequest,
-  res: Response,
-) => {
+export const downloadMyChildReportCardPdf = async (req: AuthRequest, res: Response) => {
   try {
     const { term, gradingScale } = req.query;
     if (!term) return res.status(400).json({ message: "term is required" });
 
     const studentId = await getLinkedStudentId(req.user!.id);
     if (!studentId) {
-      return res
-        .status(403)
-        .json({ message: "No student linked to this account" });
+      return res.status(403).json({ message: "No student linked to this account" });
     }
 
-    const data = await buildReportCardData(
-      studentId,
-      term as string,
-      gradingScale as string,
-    );
-    if (!data)
-      return res.status(404).json({ message: "Report card not found" });
+    const data = await buildReportCardData(studentId, term as string, gradingScale as string);
+    if (!data) return res.status(404).json({ message: "Report card not found" });
 
-    const doc = new PDFDocument({ margin: 50 });
-    res.setHeader("Content-Type", "application/pdf");
+    const pdfBuffer = await generateSingleReportCardPdf(data);
+
+    // same ASCII-safe header handling as the admin download route
     const safeAsciiFallback = "report_card.pdf";
-    const encodedName = encodeURIComponent(
-      `${data.student.name}_report_card.pdf`,
-    );
+    const encodedName = encodeURIComponent(`${data.student.name}_report_card.pdf`);
+    res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedName}`,
+      `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedName}`
     );
-    doc.pipe(res);
-    drawReportCard(doc, data);
-    doc.end();
+    res.send(pdfBuffer);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Server error", error: (err as Error).message });
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
   }
 };
 
-// GET /api/parent-portal/terms  — so the frontend can populate a term
-// dropdown without the parent needing admin-level access to /api/terms
-// (if you haven't built a general terms list route yet, this covers it)
+// GET /api/parent-portal/terms
 export const getAvailableTerms = async (_req: AuthRequest, res: Response) => {
   try {
     const terms = await Term.find().sort({ session: -1, termNumber: -1 });
     res.status(200).json(terms);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Server error", error: (err as Error).message });
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
   }
 };

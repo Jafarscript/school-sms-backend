@@ -6,6 +6,7 @@ import Term from "../models/Term";
 import GradingScale from "../models/GradingScale";
 import { AuthRequest } from "../middleware/auth";
 import { getClassCumulativePositions } from "./broadsheetController";
+import { foldCascade } from "../utils/cascadeAverage";
 
 // Returns the full report card data object, or null if the student/term
 // can't be found. No `req`/`res` here on purpose — this is a plain function
@@ -25,8 +26,9 @@ export const buildReportCardData = async (
   const currentTerm = await Term.findById(termId);
   if (!currentTerm) return null;
 
-  // find every term in the same session up to and including the current one
-  // e.g. if currentTerm.termNumber = 3, this pulls terms 1, 2, and 3
+  // every term in the same session up to and including the current one,
+  // in chronological order — this order matters now, since the cascade
+  // must fold term 1 → term 2 → term 3, not just average them all at once
   const priorTerms = await Term.find({
     session: currentTerm.session,
     termNumber: { $lte: currentTerm.termNumber },
@@ -46,23 +48,34 @@ export const buildReportCardData = async (
     term: { $in: priorTermIds },
   });
 
-  // group scores by subject so we can average across the relevant terms
-  const grouped = new Map<string, number[]>();
+  // group raw totals by subject, keyed by term, so we can look each
+  // term up in chronological order below (priorTerms is already sorted
+  // ascending) rather than however scoresBySubject happens to return
+  const scoresBySubjectMap = new Map<string, Map<string, number>>(); // subjectId -> termId -> total
   scoresBySubject.forEach((sc) => {
-    const key = sc.subject.toString();
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(sc.total);
+    const subjectKey = sc.subject.toString();
+    if (!scoresBySubjectMap.has(subjectKey)) scoresBySubjectMap.set(subjectKey, new Map());
+    scoresBySubjectMap.get(subjectKey)!.set(sc.term.toString(), sc.total);
   });
 
   const gradingScale = scaleId ? await GradingScale.findById(scaleId) : null;
 
   const subjectResults = subjects.map((subject) => {
-    const scores = grouped.get(subject._id.toString()) || [];
-    // term 1: just that term's score. term 2: avg of term1+2. term 3: avg of all 3.
-    const cumulativeAverage =
-      scores.length > 0
-        ? scores.reduce((a, b) => a + b, 0) / scores.length
-        : null;
+    const subjectKey = subject._id.toString();
+    const termScoreMap = scoresBySubjectMap.get(subjectKey) || new Map();
+
+    // pull this subject's raw totals in chronological order, based on
+    // priorTerms' order — this is what makes the cascade correct
+    const rawScoresAscending = priorTerms
+      .map((t) => termScoreMap.get(t._id.toString()))
+      .filter((v): v is number => v !== undefined);
+
+    const { priorPeriodValue, finalValue: cumulativeAverage } = foldCascade(rawScoresAscending);
+
+    const currentTermScore = termScoreMap.get(termId) ?? null;
+    const currentTermScoreDoc = scoresBySubject.find(
+      (sc) => sc.subject.toString() === subjectKey && sc.term.toString() === termId
+    );
 
     let grade = null;
     let remark = null;
@@ -70,8 +83,7 @@ export const buildReportCardData = async (
 
     if (gradingScale && cumulativeAverage !== null) {
       const band = gradingScale.bands.find(
-        (b) =>
-          cumulativeAverage >= b.minScore && cumulativeAverage <= b.maxScore
+        (b) => cumulativeAverage >= b.minScore && cumulativeAverage <= b.maxScore
       );
       if (band) {
         grade = band.grade;
@@ -84,14 +96,15 @@ export const buildReportCardData = async (
       subject: subject._id,
       nameEnglish: subject.nameEnglish,
       nameArabic: subject.nameArabic,
-      // the current term's own score, shown separately from the cumulative
-      currentTermScore:
-        scoresBySubject.find((sc) => sc.term.toString() === termId)?.total ??
-        null,
+      ca: currentTermScoreDoc?.ca ?? null,
+      exam: currentTermScoreDoc?.exam ?? null,
+      currentTermScore,
+      // only present for term 2 (= term 1's raw total) and term 3
+      // (= cascade through term 1+2) — term 1 has nothing prior, so null
+      priorPeriodValue:
+        priorPeriodValue !== null ? Math.round(priorPeriodValue * 100) / 100 : null,
       cumulativeAverage:
-        cumulativeAverage !== null
-          ? Math.round(cumulativeAverage * 100) / 100
-          : null,
+        cumulativeAverage !== null ? Math.round(cumulativeAverage * 100) / 100 : null,
       grade,
       remark,
       remarkArabic,
@@ -117,7 +130,7 @@ export const buildReportCardData = async (
       gender: student.gender,
       numberInClass: student.numberInClass,
       class: (student.class as any).name,
-      arm: (student.class as any).arm || null, // omit on report card if null
+      arm: (student.class as any).arm || null,
     },
     term: {
       session: currentTerm.session,
@@ -140,12 +153,9 @@ export const getReportCard = async (req: AuthRequest, res: Response) => {
       term as string,
       gradingScale as string
     );
-    if (!data)
-      return res.status(404).json({ message: "Student or term not found" });
+    if (!data) return res.status(404).json({ message: "Student or term not found" });
     res.status(200).json(data);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Server error", error: (err as Error).message });
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
   }
 };
