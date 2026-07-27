@@ -87,7 +87,12 @@ export const getStudents = async (req: AuthRequest, res: Response) => {
   try {
     const filter: Record<string, string> = {};
     if (req.query.class) filter.class = req.query.class as string;
-    if (req.query.branch) filter.branch = req.query.branch as string;
+
+    if (req.user?.role === "branch_admin" && req.user.branch) {
+      filter.branch = req.user.branch;
+    } else if (req.query.branch) {
+      filter.branch = req.query.branch as string;
+    }
 
     const students = await Student.find(filter)
       .populate("class", "name arm")

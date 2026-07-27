@@ -16,7 +16,15 @@ export const createClass = async (req: AuthRequest, res: Response) => {
 export const getClasses = async (req: AuthRequest, res: Response) => {
   try {
     const filter: Record<string, string> = {};
-    if (req.query.branch) filter.branch = req.query.branch as string;
+
+    // branch_admin is always scoped to their own branch, regardless of
+    // whatever the query string says — this is the real enforcement point,
+    // not a suggestion the frontend can just choose to respect or ignore
+    if (req.user?.role === "branch_admin" && req.user.branch) {
+      filter.branch = req.user.branch;
+    } else if (req.query.branch) {
+      filter.branch = req.query.branch as string;
+    }
 
     const classes = await ClassModel.find(filter).populate("branch", "name").sort({ name: 1 });
     res.status(200).json(classes);

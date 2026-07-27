@@ -14,7 +14,8 @@ import reportCardRoutes from "./routes/reportCardRoutes";
 import pdfRoutes from "./routes/pdfRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
 import parentPortalRoutes from "./routes/parentPortalRoutes";
-import termRoutes from "./routes/termRoutes"
+import termRoutes from "./routes/termRoutes";
+import userRoutes from "./routes/userRoutes"
 import { errorHandler } from "./middleware/errorHandler";
 
 dotenv.config();
@@ -29,6 +30,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/classes", classRoutes);
 app.use("/api/subjects", subjectRoutes);
