@@ -16,6 +16,7 @@ export interface IUser extends Document {
   classes?: Types.ObjectId[];       // classes this class_teacher/subject_teacher is tied to
   subjects?: Types.ObjectId[];      // specific subjects a subject_teacher can enter scores for
   linkedStudent?: Types.ObjectId;   // for parent accounts
+  mustChangePassword: boolean; 
 }
 
 const UserSchema = new Schema<IUser>({
@@ -31,6 +32,7 @@ const UserSchema = new Schema<IUser>({
   classes: [{ type: Schema.Types.ObjectId, ref: "Class" }],
   subjects: [{ type: Schema.Types.ObjectId, ref: "Subject" }],
   linkedStudent: { type: Schema.Types.ObjectId, ref: "Student" },
+  mustChangePassword: { type: Boolean, default: true },
 });
 
 export default mongoose.model<IUser>("User", UserSchema);
