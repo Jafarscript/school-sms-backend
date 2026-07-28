@@ -7,6 +7,7 @@ import GradingScale from "../models/GradingScale";
 import { AuthRequest } from "../middleware/auth";
 import { getClassCumulativePositions } from "./broadsheetController";
 import { foldCascade } from "../utils/cascadeAverage";
+import ReportCardRemark from "../models/ReportCardRemark";
 
 // Returns the full report card data object, or null if the student/term
 // can't be found. No `req`/`res` here on purpose — this is a plain function
@@ -14,7 +15,7 @@ import { foldCascade } from "../utils/cascadeAverage";
 export const buildReportCardData = async (
   studentId: string,
   termId: string,
-  scaleId?: string
+  scaleId?: string,
 ) => {
   if (!studentId || !termId) {
     return null;
@@ -54,7 +55,8 @@ export const buildReportCardData = async (
   const scoresBySubjectMap = new Map<string, Map<string, number>>(); // subjectId -> termId -> total
   scoresBySubject.forEach((sc) => {
     const subjectKey = sc.subject.toString();
-    if (!scoresBySubjectMap.has(subjectKey)) scoresBySubjectMap.set(subjectKey, new Map());
+    if (!scoresBySubjectMap.has(subjectKey))
+      scoresBySubjectMap.set(subjectKey, new Map());
     scoresBySubjectMap.get(subjectKey)!.set(sc.term.toString(), sc.total);
   });
 
@@ -70,11 +72,13 @@ export const buildReportCardData = async (
       .map((t) => termScoreMap.get(t._id.toString()))
       .filter((v): v is number => v !== undefined);
 
-    const { priorPeriodValue, finalValue: cumulativeAverage } = foldCascade(rawScoresAscending);
+    const { priorPeriodValue, finalValue: cumulativeAverage } =
+      foldCascade(rawScoresAscending);
 
     const currentTermScore = termScoreMap.get(termId) ?? null;
     const currentTermScoreDoc = scoresBySubject.find(
-      (sc) => sc.subject.toString() === subjectKey && sc.term.toString() === termId
+      (sc) =>
+        sc.subject.toString() === subjectKey && sc.term.toString() === termId,
     );
 
     let grade = null;
@@ -83,7 +87,8 @@ export const buildReportCardData = async (
 
     if (gradingScale && cumulativeAverage !== null) {
       const band = gradingScale.bands.find(
-        (b) => cumulativeAverage >= b.minScore && cumulativeAverage <= b.maxScore
+        (b) =>
+          cumulativeAverage >= b.minScore && cumulativeAverage <= b.maxScore,
       );
       if (band) {
         grade = band.grade;
@@ -102,9 +107,13 @@ export const buildReportCardData = async (
       // only present for term 2 (= term 1's raw total) and term 3
       // (= cascade through term 1+2) — term 1 has nothing prior, so null
       priorPeriodValue:
-        priorPeriodValue !== null ? Math.round(priorPeriodValue * 100) / 100 : null,
+        priorPeriodValue !== null
+          ? Math.round(priorPeriodValue * 100) / 100
+          : null,
       cumulativeAverage:
-        cumulativeAverage !== null ? Math.round(cumulativeAverage * 100) / 100 : null,
+        cumulativeAverage !== null
+          ? Math.round(cumulativeAverage * 100) / 100
+          : null,
       grade,
       remark,
       remarkArabic,
@@ -122,6 +131,17 @@ export const buildReportCardData = async (
   const classId = (student.class as any)._id.toString();
   const positionMap = await getClassCumulativePositions(classId, termId);
   const position = positionMap.get(studentId) ?? null;
+
+  const totalStudentsInClass = await Student.countDocuments({ class: classId });
+
+  const remarkDoc = await ReportCardRemark.findOne({ student: studentId, term: termId });
+const classTeacherComment = remarkDoc?.classTeacherCommentEn
+  ? { en: remarkDoc.classTeacherCommentEn, ar: remarkDoc.classTeacherCommentAr }
+  : null;
+const principalComment = remarkDoc?.principalCommentEn
+  ? { en: remarkDoc.principalCommentEn, ar: remarkDoc.principalCommentAr }
+  : null;
+
 
   return {
     student: {
@@ -141,6 +161,9 @@ export const buildReportCardData = async (
     overallPercentage: Math.round(overallPercentage * 100) / 100,
     position,
     result: overallPercentage >= 50 ? "Pass" : "Fail",
+    totalStudentsInClass,
+    classTeacherComment,   // { id, en, ar } | null
+    principalComment,
   };
 };
 
@@ -151,11 +174,14 @@ export const getReportCard = async (req: AuthRequest, res: Response) => {
     const data = await buildReportCardData(
       student as string,
       term as string,
-      gradingScale as string
+      gradingScale as string,
     );
-    if (!data) return res.status(404).json({ message: "Student or term not found" });
+    if (!data)
+      return res.status(404).json({ message: "Student or term not found" });
     res.status(200).json(data);
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: "Server error", error: (err as Error).message });
   }
 };

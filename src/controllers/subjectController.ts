@@ -12,6 +12,27 @@ export const createSubject = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const bulkCreateSubjects = async (req: AuthRequest, res: Response) => {
+  try {
+    const { class: classId, subjects } = req.body;
+
+    if (!Array.isArray(subjects) || subjects.length === 0) {
+      return res.status(400).json({ message: "subjects array is required" });
+    }
+
+    const toInsert = subjects.map((s: { nameEnglish: string; nameArabic?: string }) => ({
+      nameEnglish: s.nameEnglish,
+      nameArabic: s.nameArabic,
+      class: classId,
+    }));
+
+    const created = await Subject.insertMany(toInsert);
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: (err as Error).message });
+  }
+};
+
 // GET /api/subjects?class=<classId>  — subjects are per-class, so almost always filtered
 export const getSubjects = async (req: AuthRequest, res: Response) => {
   try {
