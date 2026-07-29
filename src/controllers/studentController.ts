@@ -1,6 +1,7 @@
 import { Response } from "express";
 import Student from "../models/Student";
 import { AuthRequest } from "../middleware/auth";
+import Score from "../models/Score";
 
 // Re-sorts every student in a class alphabetically (Arabic-aware collation,
 // since names are typically in Arabic script) and reassigns numberInClass
@@ -124,10 +125,12 @@ export const deleteStudent = async (req: AuthRequest, res: Response) => {
     const deleted = await Student.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: "Student not found" });
 
-    // this is the actual fix for the gap/duplicate bug — after removing
-    // a student, everyone else gets renumbered to close the gap
-    await renumberClass(deleted.class.toString());
+    // clean up their score history too — otherwise those records become
+    // orphaned, referencing a student that no longer exists, which can
+    // crash any query that populates and expects the student to be there
+    await Score.deleteMany({ student: req.params.id });
 
+    await renumberClass(deleted.class.toString());
     res.status(200).json({ message: "Student deleted" });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: (err as Error).message });

@@ -1,6 +1,7 @@
 import { Response } from "express";
 import Subject from "../models/Subject";
 import { AuthRequest } from "../middleware/auth";
+import User from "../models/User";
 
 export const createSubject = async (req: AuthRequest, res: Response) => {
   try {
@@ -36,8 +37,14 @@ export const bulkCreateSubjects = async (req: AuthRequest, res: Response) => {
 // GET /api/subjects?class=<classId>  — subjects are per-class, so almost always filtered
 export const getSubjects = async (req: AuthRequest, res: Response) => {
   try {
-    const filter: Record<string, string> = {};
+    const filter: Record<string, any> = {};
     if (req.query.class) filter.class = req.query.class as string;
+
+    if (req.user?.role === "subject_teacher") {
+      const teacher = await User.findById(req.user.id);
+      const allowedSubjectIds = (teacher?.subjects || []).map((s) => s.toString());
+      filter._id = { $in: allowedSubjectIds };
+    }
 
     const subjects = await Subject.find(filter).sort({ nameEnglish: 1 });
     res.status(200).json(subjects);
