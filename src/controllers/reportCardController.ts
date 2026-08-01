@@ -80,6 +80,10 @@ export const buildReportCardData = async (
       (sc) =>
         sc.subject.toString() === subjectKey && sc.term.toString() === termId,
     );
+    const combinedTotal =
+  priorPeriodValue !== null && currentTermScore !== null
+    ? priorPeriodValue + currentTermScore
+    : null;
 
     let grade = null;
     let remark = null;
@@ -110,6 +114,7 @@ export const buildReportCardData = async (
         priorPeriodValue !== null
           ? Math.round(priorPeriodValue * 100) / 100
           : null,
+      combinedTotal: combinedTotal !== null ? Math.round(combinedTotal * 100) / 100 : null,
       cumulativeAverage:
         cumulativeAverage !== null
           ? Math.round(cumulativeAverage * 100) / 100
@@ -120,13 +125,13 @@ export const buildReportCardData = async (
     };
   });
 
-  const validAverages = subjectResults
-    .map((s) => s.cumulativeAverage)
-    .filter((v): v is number => v !== null);
-
-  const overallTotal = validAverages.reduce((a, b) => a + b, 0);
-  const overallPercentage =
-    validAverages.length > 0 ? overallTotal / validAverages.length : 0;
+  const totalSubjectsCount = subjects.length;
+const overallTotal = subjectResults.reduce(
+  (sum, s) => sum + (s.cumulativeAverage ?? 0),
+  0
+);
+const overallPercentage =
+  totalSubjectsCount > 0 ? overallTotal / totalSubjectsCount : 0;
 
   const classId = (student.class as any)._id.toString();
   const positionMap = await getClassCumulativePositions(classId, termId);
@@ -134,13 +139,49 @@ export const buildReportCardData = async (
 
   const totalStudentsInClass = await Student.countDocuments({ class: classId });
 
-  const remarkDoc = await ReportCardRemark.findOne({ student: studentId, term: termId });
-const classTeacherComment = remarkDoc?.classTeacherCommentEn
-  ? { en: remarkDoc.classTeacherCommentEn, ar: remarkDoc.classTeacherCommentAr }
-  : null;
-const principalComment = remarkDoc?.principalCommentEn
-  ? { en: remarkDoc.principalCommentEn, ar: remarkDoc.principalCommentAr }
-  : null;
+  const remarkDoc = await ReportCardRemark.findOne({
+  student: studentId,
+  term: termId,
+});
+
+const classTeacherComment =
+  remarkDoc?.classTeacherCommentEn && remarkDoc?.classTeacherCommentAr
+    ? { en: remarkDoc.classTeacherCommentEn, ar: remarkDoc.classTeacherCommentAr }
+    : null;
+
+const principalComment =
+  remarkDoc?.principalCommentEn && remarkDoc?.principalCommentAr
+    ? { en: remarkDoc.principalCommentEn, ar: remarkDoc.principalCommentAr }
+    : null;
+
+  const termAverages = priorTerms.map((t) => {
+  const cascadeValues: number[] = [];
+
+  subjects.forEach((subject) => {
+    const subjectKey = subject._id.toString();
+    const termScoreMap = scoresBySubjectMap.get(subjectKey) || new Map();
+
+    const scoresUpToThisTerm = priorTerms
+      .filter((pt) => pt.termNumber <= t.termNumber)
+      .map((pt) => termScoreMap.get(pt._id.toString()))
+      .filter((v): v is number => v !== undefined);
+
+    if (scoresUpToThisTerm.length > 0) {
+      const { finalValue } = foldCascade(scoresUpToThisTerm);
+      if (finalValue !== null) cascadeValues.push(finalValue);
+    }
+  });
+
+  const average =
+    cascadeValues.length > 0
+      ? cascadeValues.reduce((a, b) => a + b, 0) / cascadeValues.length
+      : null;
+
+  return {
+    termNumber: t.termNumber,
+    average: average !== null ? Math.round(average * 100) / 100 : null,
+  };
+});
 
 
   return {
@@ -162,6 +203,7 @@ const principalComment = remarkDoc?.principalCommentEn
     position,
     result: overallPercentage >= 50 ? "Pass" : "Fail",
     totalStudentsInClass,
+    termAverages,
     classTeacherComment,   // { id, en, ar } | null
     principalComment,
   };

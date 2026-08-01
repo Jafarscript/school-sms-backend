@@ -98,6 +98,7 @@ export const getClassCumulativePositions = async (
 
   const students = await Student.find({ class: classId });
   const subjects = await Subject.find({ class: classId });
+  const totalSubjectsCount = subjects.length;   // add this
 
   const scores = await Score.find({
     student: { $in: students.map((s) => s._id) },
@@ -105,39 +106,40 @@ export const getClassCumulativePositions = async (
     term: { $in: priorTermIds },
   });
 
-  // index: studentId -> subjectId -> termId -> total
-  const scoreIndex = new Map<string, Map<string, Map<string, number>>>();
+  // group by student -> subject -> termId, so we can cascade each
+  // subject individually (same as buildReportCardData), not flatten
+  // everything into one undifferentiated list of raw totals
+  const byStudentSubject = new Map<string, Map<string, Map<string, number>>>();
   scores.forEach((sc) => {
     const studentKey = sc.student.toString();
     const subjectKey = sc.subject.toString();
-    if (!scoreIndex.has(studentKey)) scoreIndex.set(studentKey, new Map());
-    const subjectMap = scoreIndex.get(studentKey)!;
-    if (!subjectMap.has(subjectKey)) subjectMap.set(subjectKey, new Map());
-    subjectMap.get(subjectKey)!.set(sc.term.toString(), sc.total);
+    if (!byStudentSubject.has(studentKey)) byStudentSubject.set(studentKey, new Map());
+    const subjMap = byStudentSubject.get(studentKey)!;
+    if (!subjMap.has(subjectKey)) subjMap.set(subjectKey, new Map());
+    subjMap.get(subjectKey)!.set(sc.term.toString(), sc.total);
   });
 
-  const rankInput = students.map((student) => {
-    const studentSubjectMap = scoreIndex.get(student._id.toString()) || new Map();
+  const rankInput = students.map((s) => {
+    const studentKey = s._id.toString();
+    const subjMap = byStudentSubject.get(studentKey) || new Map();
 
-    // for each subject, fold the cascade in chronological term order,
-    // exactly like buildReportCardData does — then average the per-subject
-    // cascade results to get this student's overall cumulative score
-    const perSubjectCascades = subjects
-      .map((subject) => {
-        const termMap = studentSubjectMap.get(subject._id.toString()) || new Map();
-        const rawScoresAscending = priorTerms
-          .map((t) => termMap.get(t._id.toString()))
-          .filter((v): v is number => v !== undefined);
-        return foldCascade(rawScoresAscending).finalValue;
-      })
-      .filter((v): v is number => v !== null);
+    // cascade each subject the same way the report card does, then
+    // average across the FULL subject count — a subject with no score
+    // yet contributes 0, matching buildReportCardData's overallPercentage
+    let total = 0;
+    subjects.forEach((subject) => {
+      const subjectKey = subject._id.toString();
+      const termScoreMap = subjMap.get(subjectKey) || new Map();
+      const rawScoresAscending = priorTerms
+        .map((t) => termScoreMap.get(t._id.toString()))
+        .filter((v): v is number => v !== undefined);
 
-    const overall =
-      perSubjectCascades.length > 0
-        ? perSubjectCascades.reduce((a, b) => a + b, 0) / perSubjectCascades.length
-        : 0;
+      const { finalValue } = foldCascade(rawScoresAscending);
+      total += finalValue ?? 0;
+    });
 
-    return { studentId: student._id.toString(), score: overall };
+    const average = totalSubjectsCount > 0 ? total / totalSubjectsCount : 0;
+    return { studentId: studentKey, score: average };
   });
 
   const ranked = computePositions(rankInput);
